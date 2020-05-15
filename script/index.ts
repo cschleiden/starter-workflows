@@ -1,38 +1,49 @@
+#!/usr/bin/env npx ts-node
 import { promises as fs } from "fs";
 import { safeLoad } from "js-yaml";
-import { join } from "path";
+import { basename, extname, join } from "path";
 import { exec } from "./exec";
 
-async function checkWorkflows(folders: string[], enabledActions: string[]) {
-  const result: {
-    enabledWorkflows: string[];
-    disabledWorkflows: string[];
-  } = {
-    enabledWorkflows: [],
-    disabledWorkflows: [],
+interface WorkflowDesc {
+  folder: string;
+  id: string;
+}
+
+interface WorkflowsCheckResult {
+  compatibleWorkflows: WorkflowDesc[];
+  incompatibleWorkflows: WorkflowDesc[];
+}
+
+async function checkWorkflows(
+  folders: string[],
+  enabledActions: string[]
+): Promise<WorkflowsCheckResult> {
+  const result: WorkflowsCheckResult = {
+    compatibleWorkflows: [],
+    incompatibleWorkflows: [],
   };
 
   for (const folder of folders) {
-    try {
-      const dir = await fs.readdir(folder, {
-        withFileTypes: true,
-      });
+    const dir = await fs.readdir(folder, {
+      withFileTypes: true,
+    });
 
-      for (const e of dir) {
-        if (e.isFile()) {
-          const workflowFilePath = join(folder, e.name);
-          const enabled = await checkWorkflow(workflowFilePath, enabledActions);
+    for (const e of dir) {
+      if (e.isFile()) {
+        const workflowFilePath = join(folder, e.name);
+        const enabled = await checkWorkflow(workflowFilePath, enabledActions);
 
-          !enabled && console.log(workflowFilePath, enabled);
-          if (!enabled) {
-            result.disabledWorkflows.push(workflowFilePath);
-          } else {
-            result.enabledWorkflows.push(workflowFilePath);
-          }
+        const workflowDesc: WorkflowDesc = {
+          folder,
+          id: basename(e.name, extname(e.name)),
+        };
+
+        if (!enabled) {
+          result.incompatibleWorkflows.push(workflowDesc);
+        } else {
+          result.compatibleWorkflows.push(workflowDesc);
         }
       }
-    } catch (e) {
-      console.error(e);
     }
   }
 
@@ -87,14 +98,43 @@ async function checkWorkflow(
       settings.enabledActions
     );
 
+    console.group(
+      `Found ${result.compatibleWorkflows.length} starter workflows compatible with GHES:`
+    );
+    console.log(
+      result.compatibleWorkflows.map((x) => `${x.folder}/${x.id}`).join("\n")
+    );
+    console.groupEnd();
+
+    console.group(
+      `Ignored ${result.incompatibleWorkflows.length} starter-workflows incompatible with GHES:`
+    );
+    console.log(
+      result.incompatibleWorkflows.map((x) => `${x.folder}/${x.id}`).join("\n")
+    );
+    console.groupEnd();
+
     console.log("Switch to GHES branch");
     await exec("git", ["checkout", "ghes"]);
 
     console.log("Remove all workflows");
-    await exec("rm", settings.folders);
+    await exec("rm", ["-fr", ...settings.folders]);
 
     console.log("Sync changes from master for enabled workflows");
-    await exec("git", ["checkout", "master", "--", ...result.enabledWorkflows]);
+
+    // Yaml
+    await exec("git", [
+      "checkout",
+      "master",
+      "--",
+      ...Array.prototype.concat.apply(
+        [],
+        result.compatibleWorkflows.map((x) => [
+          join(x.folder, `${x.id}.yml`),
+          join(x.folder, "properties", `${x.id}.properties.json`),
+        ])
+      ),
+    ]);
   } catch (e) {
     console.error(e);
     process.exitCode = 1;
