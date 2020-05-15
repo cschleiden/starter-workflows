@@ -11,11 +11,11 @@ jobs:
     - uses: actions/setup-node@v1
       with:
         node-version: '12'
-    - runs: |
+    - run: |
         npm ci
         npx ts-node-script ./index.ts
       working-directory: ./script
-    - runs: |
+    - run: |
         git add -A
         git commit -m "Updating GHES workflows"
-    - runs: git push
+    - run: git push
