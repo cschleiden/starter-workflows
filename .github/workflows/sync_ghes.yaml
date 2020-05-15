@@ -1,0 +1,19 @@
+on:
+  push:
+    branches:
+    - master
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions/setup-node@v1
+      with:
+        node-version: '12'
+    - runs: |
+        npm ci
+        npx ts-node ./index.ts
+      working-directory: ./script
+    - runs: git commit -m "Updating GHES workflows"
+    - runs: git push
